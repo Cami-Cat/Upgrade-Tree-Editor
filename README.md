@@ -1,10 +1,6 @@
 # Upgrade Tree Editor
 Unreal Engine 5.5.4
 
-# Notes:
-
-You are currently forced into a specific data schema. This will change with the next coming update to allow for more customizability. But you will at the very least keep Icons and Borders. At least it will be easier to extend from and change for your purposes!
-
 # How to use!
 
 Once you've dragged the plugin into your project's `/plugin` directory and enabled it, you should see a neat little button at the top of the level editor that upon clicking, should either tell you no upgrade tree exists, or opens one up. You can create a new upgrade tree very quickly by heading to the plugin content folder and accessing: `Plugins\UpgradeAsset\Content\Tree`. If you make your asset in here, it should work! I'll update this to include the content folder recursively in `v1.02`.
