@@ -7,6 +7,13 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "App/UpgradeAssetEditorApp.h"
 #include "Framework/Commands/UIAction.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "EditorAssetLibrary.h"
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "Graph/Node/UpgradeAssetGraphNode.h"
 
 // Initialize the node with default attached data rather than a nullptr.
@@ -39,6 +46,74 @@ void UUpgradeAssetGraphNode::AllocateDefaultPins() {
     ValidateGuid();
     CreatePin(EGPD_Input, FName("UpgradePinIn"), FName("InputLink"));
     CreatePin(EGPD_Output, FName("UpgradePinOut"), FName("outputLink"));
+    return;
+}
+
+void UUpgradeAssetGraphNode::SaveAttachedAsset() {
+    UUpgradeNodeDataAsset* AttachedData = GetAttachedData();
+    if (!AttachedData) return;
+
+    UPackage* CurrentPackage = AttachedData->GetOutermost();
+    if (!CurrentPackage) return;
+
+    // Get our current package name and store the path that our plugin generates these files in.
+    FString CurrentPackageName = CurrentPackage->GetName();
+    FString PluginGenerationFolder = TEXT("/Game/Gamefiles/Meta/DataAssets/Upgrades/"); 
+
+    // Define our specified path and file format.
+    FString TargetName = FString::Printf(TEXT("DA_%s"), *NodeGuid.ToString(EGuidFormats::Short));
+    FString TargetPackagePath = PluginGenerationFolder + TargetName;
+
+    // This only handles saving transient / unsaved data.
+    if (CurrentPackageName != TargetPackagePath) {
+        // Check both potential file locations.
+        if (!CurrentPackageName.StartsWith(PluginGenerationFolder) && !CurrentPackageName.StartsWith(TEXT("/Game/"))) {
+            UPackage* NewPackage = CreatePackage(*TargetPackagePath);
+            if (NewPackage) {
+                AttachedData->Rename(*TargetName, NewPackage);
+                AttachedData->SetFlags(RF_Public | RF_Standalone);
+                
+                // Now store the verified new package as our current package.
+                CurrentPackage = NewPackage;
+                
+                // Fully load our current package to ensure that it is stored in memory.
+                CurrentPackage->FullyLoad(); 
+                
+                // Then notify from the asset registry that we have created an asset.
+                IAssetRegistry& AssetRegistry = FAssetRegistryModule::GetRegistry();
+                AssetRegistry.AssetCreated(AttachedData);
+            }
+        }
+    }
+
+    UPackage* FinalPackage = CurrentPackage; 
+    if (FinalPackage) {
+        FString FinalPackageName = FinalPackage->GetName();
+        
+        // Ensure that this is a valid game path before we save.
+        if (!FinalPackageName.StartsWith(TEXT("/Game/"))) return;
+
+        // Get the long package file location and append the extension.
+        FString PackageFileName = FPackageName::LongPackageNameToFilename(FinalPackageName, FPackageName::GetAssetPackageExtension());
+
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GError;
+
+        // Saves the asset at either the found package or at the newly created package location.
+        if (UPackage::SavePackage(FinalPackage, AttachedData, *PackageFileName, SaveArgs)) {
+            // Clear the unsaved (*) UI flag.
+            FinalPackage->SetDirtyFlag(false);
+        }
+    }
+}
+// Clean up input names so Windows/Unreal doesn't crash on spaces/special characters
+FString UUpgradeAssetGraphNode::CleanStringForAsset(const FString& InString)
+{
+    FString CleanString = InString;
+    CleanString.ReplaceInline(TEXT(" "), TEXT("_"));
+    // Keep only alphanumeric characters and underscores
+    return CleanString;
 }
 
 // Force a new GUID, if we have a nodeId already, we can skip that, otherwise we set it to our new GUID.
@@ -49,14 +124,20 @@ void UUpgradeAssetGraphNode::ValidateGuid() {
 
 // Getters and setters with some simple functions.
 FGuid UUpgradeAssetGraphNode::GetNodeId() { return _nodeId; }
+
 void UUpgradeAssetGraphNode::SetNodeId(FGuid newNodeId) { _nodeId = newNodeId; }
+
 const TArray<FGuid>& UUpgradeAssetGraphNode::GetNodeUnlocks() { return _unlocks; }
+
 UUpgradeNodeDataAsset* UUpgradeAssetGraphNode::GetAttachedData() { return _attachedData; }
+
 void UUpgradeAssetGraphNode::SetAttachedData(UUpgradeNodeDataAsset* newData) {
     _attachedData = newData;
     OnAttachedDataChanged.Broadcast(this, newData);
 }
+
 UObject* UUpgradeAssetGraphNode::GetRuntimeNode() { return _runtimeNode; }
+
 void UUpgradeAssetGraphNode::SetRuntimeNode(UObject* runtimeNodeReference) { _runtimeNode = runtimeNodeReference; }
 
 // Delegate handling for changing the icon and borders.
@@ -80,8 +161,12 @@ void UUpgradeAssetGraphNode::AddNewUnlockConnection(FGuid nodeId) {
     for (UEdGraphNode* node : this->GetGraph()->Nodes) {
         UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(node);
         if (!castNode || castNode->GetNodeId() != nodeId) { continue; }
+        // We don't want to add to a node that has no data.
+        if (!castNode->_attachedData) { continue; }
         // If it is equal but the other node contains your GUID, return.
-        if (castNode->GetNodeId() == nodeId && castNode->GetNodeUnlocks().Contains(GetNodeId())) { return; }
+        if (castNode->GetNodeUnlocks().Contains(GetNodeId())) { return; }
+        castNode->_nodeParents.AddUnique(GetNodeId());
+        break;
     }
     // Otherwise, add it to our unlocks (Drawn in SUpgradeAssetGraphNode)
     _unlocks.Add(nodeId);
@@ -96,6 +181,20 @@ bool UUpgradeAssetGraphNode::RemoveUnlockConnection(FGuid nodeId) {
     // Modify.
     if (GetGraph()) { GetGraph()->Modify(); }
     this->Modify();
+
+    if (GetGraph()) {
+        for (UEdGraphNode* Node : GetGraph()->Nodes) {
+            UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(Node);
+            if (castNode && castNode->GetNodeId() == nodeId) {
+                if (!castNode->_attachedData) { return false; }
+                castNode->Modify();
+                castNode->_attachedData->Modify();
+                castNode->_nodeParents.Remove(GetNodeId());
+                break;
+            }
+        }
+    }
+
     // Remove it from the list of unlocks.
     _unlocks.Remove(nodeId);
     // Notify graph change.
@@ -116,12 +215,24 @@ bool UUpgradeAssetGraphNode::RemoveAllUnlockConnections() {
     for (UEdGraphNode* Node : this->GetGraph()->Nodes) {
         UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(Node);
         if (!castNode || castNode == this) { continue; }
-        // Modify the node that we're changing.
-        castNode->Modify();
-        // Remove us from that node's connections.
-        if (castNode->GetNodeUnlocks().Contains(MyNodeId)) {
-            castNode->_unlocks.Remove(MyNodeId);
+        if (castNode->GetNodeUnlocks().Contains(GetNodeId())) {
+            castNode->Modify();
+            castNode->_unlocks.Remove(GetNodeId());
+
+            if (this->_attachedData) {
+                this->_attachedData->Modify();
+                this->_nodeParents.Remove(castNode->GetNodeId());
+            }
             bAnyConnectionsChanged = true;
+        }
+
+        if (GetNodeUnlocks().Contains(castNode->GetNodeId())) {
+            if (castNode->_attachedData) {
+                castNode->Modify();
+                castNode->_attachedData->Modify();
+                castNode->_nodeParents.Remove(GetNodeId());
+                bAnyConnectionsChanged = true;
+            }
         }
     }
 

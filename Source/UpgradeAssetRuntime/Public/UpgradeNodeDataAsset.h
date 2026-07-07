@@ -8,6 +8,53 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnIconChangedSignature, UTexture2D*, newIcon);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBorderChangedSignature, UTexture2D*, newIcon);
 
+UENUM(BlueprintType)
+enum class EStatDisplayType : uint8 {
+	Percentage 	UMETA(DisplayName = "Percentage"),
+	Flat		UMETA(DisplayName = "Flat Number"),
+	Bool		UMETA(DisplayName = "On/Off"),
+	Float		UMETA(DisplayName = "Floating Point Value")
+};
+
+UENUM(BlueprintType)
+enum class EUpgradeParentRequirement : uint8 {
+	All 		UMETA(DisplayName = "Require All Parents"),
+	Any			UMETA(DisplayName = "Require Any Parent"),
+};
+
+UENUM(BlueprintType)
+enum class EIncrementType : uint8 {
+	Linear		UMETA(DisplayName = "Linear Increment"),
+	Exponential UMETA(DisplayName = "Exponential Increment"),
+};
+
+USTRUCT(BlueprintType)
+struct FUpgradeStat {
+	GENERATED_BODY()
+public:
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	EStatDisplayType statDisplay = EStatDisplayType::Percentage;
+
+	// The Stat ID?
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	FString statId = TEXT("");
+
+	// How it increases said stat?
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	double statValue = 0.0;
+
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	double statIncrement = 0.0;
+
+	// Prefix for the stat, like "$1.0 Extra"
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	FString statPrefix = TEXT("");
+
+	// Suffix like "10%"
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly)
+	FString statSuffix = TEXT("");
+};
+
 UCLASS(Blueprintable, BlueprintType)
 class UPGRADEASSETRUNTIME_API UUpgradeNodeDataAsset : public UPrimaryDataAsset
 {
@@ -43,9 +90,6 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details",  meta=(MultiLine="true"))
 	FText nodeDescription = FText::FromString(TEXT("Node Description."));
 
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
-	UUpgradeNodeDataAsset* nodeDetailsParent = nullptr;
-
 	// The icon shown representing the node.
 	UPROPERTY(BlueprintReadWrite, BlueprintSetter = SetIcon, EditDefaultsOnly, Category="Node|Details")
 	UTexture2D* nodeIcon = nullptr;
@@ -58,43 +102,37 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
 	UTexture2D* nodeSymbol = nullptr;
 
-	// How many times can this be upgraded?
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
-	int32 maxLevel = 1;
-
 	// Require all upgrades to be processed before we can unlock next?
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
 	bool bFullyUpgradeToProceed = false;
-
+	
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
+	EUpgradeParentRequirement ParentRequirement = EUpgradeParentRequirement::All;
+	
 	// What type of currency do we accept?
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Buying")
 	UUpgradeNodeCurrencyDataAsset* nodeBuyingCurrency = nullptr;
-
+	
 	// What should it cost to upgrade the node?
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Buying")
-	float upgradeCost = 0;
-
+	float upgradeCost = 0.0f;
+	
 	// How much should this increase?
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Buying")
-	double upgradeCostIncrease;
+	float upgradeCostIncrease = 0.0f;
 
-	// The Stat ID?
+	// How many times can this be upgraded?
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Buying")
+	int32 maxLevel = 1;
+
+	// How should this increase?
+	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Buying")
+	EIncrementType upgradeCostIncrementType = EIncrementType::Linear;
+	
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Stat")
-	FString statId = TEXT("");
+	FUpgradeStat StatDat;
 
-	// How it increases said stat?
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Stat", meta=(MultiLine="true"))
-	double statValue = 0.0;
-
-	// Prefix for the stat, like "$1.0 Extra"
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Stat")
-	FString statPrefix = TEXT("");
-
-	// Suffix like "10%"
-	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Stat")
-	FString statSuffix = TEXT("");
-
-	// Is it special?
+	// Is it special? Whatever this means.
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Node|Details")
 	bool isSpecialNode = false;
 };

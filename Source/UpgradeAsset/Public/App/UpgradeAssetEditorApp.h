@@ -26,6 +26,12 @@ public:
     virtual void BindGraphCommands() const;
     virtual void DeleteSelectedNodes() const;
     virtual bool CanDeleteSelectedNodes() const;
+    virtual void CopySelectedNodes() const;
+    virtual bool CanCopyNodes() const;
+    virtual void CutSelectedNodes() const;
+    virtual bool CanCutNodes() const;
+    virtual void PasteNodes() const;
+    virtual bool CanPasteNodes() const;
 
     virtual void PostUndo(bool bSuccess) override;
     virtual void PostRedo(bool bSuccess) override;

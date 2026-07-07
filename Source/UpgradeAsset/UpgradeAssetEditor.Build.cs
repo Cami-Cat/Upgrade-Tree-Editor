@@ -47,7 +47,9 @@ public class UpgradeAssetEditor : ModuleRules
 				"InputCore",
 				"ToolMenus",
 				"LevelEditor",
-				"AssetRegistry"
+				"AssetRegistry",
+				"ApplicationCore",
+				"EditorScriptingUtilities"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

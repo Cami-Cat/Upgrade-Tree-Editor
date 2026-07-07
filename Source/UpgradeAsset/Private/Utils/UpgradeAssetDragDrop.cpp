@@ -102,6 +102,14 @@ FReply SUpgradeGraphCanvasDropOverlay::OnDrop(const FGeometry& MyGeometry, const
         NewUiNode->NodePosY = GraphDropPos.Y;
         NewUiNode->SetNodeId(FGuid::NewGuid());
         NewUiNode->SetAttachedData(LoadedAsset);
+
+        if (NewUiNode->GetAttachedData()) {
+            NewUiNode->GetAttachedData()->OnIconChanged.RemoveDynamic(NewUiNode, &UUpgradeAssetGraphNode::HandleIconChanged);
+            NewUiNode->GetAttachedData()->OnIconChanged.AddDynamic(NewUiNode, &UUpgradeAssetGraphNode::HandleIconChanged);
+            NewUiNode->GetAttachedData()->OnBorderChanged.RemoveDynamic(NewUiNode, &UUpgradeAssetGraphNode::HandleBorderChanged);
+            NewUiNode->GetAttachedData()->OnBorderChanged.AddDynamic(NewUiNode, &UUpgradeAssetGraphNode::HandleBorderChanged);
+        }
+
         // We'll now add a new node to our graph that we got through our constructor.
         BoundGraph->AddNode(NewUiNode, true, true);
         // And we'll force-redraw the node.

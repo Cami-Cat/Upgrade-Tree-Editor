@@ -1,4 +1,5 @@
 #include "Graph/Slate/SUpgradeAssetGraphNode.h"
+#include "Graph/Slate/SUpgradeAssetGraphTooltip.h"
 #include "Utils/CamiSlateUtils.h"
 
 void SUpgradeAssetGraphNode::Construct(const FArguments& InArgs, UEdGraphNode* InNode)
@@ -8,6 +9,11 @@ void SUpgradeAssetGraphNode::Construct(const FArguments& InArgs, UEdGraphNode* I
     this->SetCursor(EMouseCursor::Hand);
     // Update the graph node. This means update pins and its draw state so that Slate knows what to do with it.
     this->UpdateGraphNode();
+    TSharedPtr<SToolTip> CustomToolTipWidget = SNew(SToolTip)[
+        SNew(SUpgradeAssetGraphTooltip, InNode)
+    ];
+
+    this->SetToolTip(CustomToolTipWidget);
 }
 
 const FSlateBrush* SUpgradeAssetGraphNode::GetNodeBodyBrush() const

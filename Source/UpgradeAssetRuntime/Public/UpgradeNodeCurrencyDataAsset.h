@@ -11,7 +11,7 @@ class UPGRADEASSETRUNTIME_API UUpgradeNodeCurrencyDataAsset : public UPrimaryDat
 public:
 	/** The name that is displayed in-game. */
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Default")
-	FText CurrencyName;
+	FName CurrencyName;
 
 	/** The icon shown representing the currency. */
 	UPROPERTY(BlueprintReadWrite, EditDefaultsOnly, Category="Default", meta=(MultiLine="true"))

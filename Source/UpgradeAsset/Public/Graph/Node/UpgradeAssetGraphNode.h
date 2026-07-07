@@ -26,12 +26,17 @@ public:
     virtual void AddNewUnlockConnection(FGuid _nodeId);
     virtual bool RemoveUnlockConnection(FGuid _nodeId);
     virtual bool RemoveAllUnlockConnections(); 
+    
+    virtual void SaveAttachedAsset();
+    FString CleanStringForAsset(const FString& InString);
+    
     UFUNCTION()
     virtual void HandleIconChanged(UTexture2D* newIcon);
     FOnAttachedDataChanged OnAttachedDataChanged;
     UFUNCTION()
     virtual void HandleBorderChanged(UTexture2D* newBorder);
 public:
+
 
     UFUNCTION()
     virtual FGuid GetNodeId();
@@ -45,6 +50,9 @@ public:
     virtual void SetNodeId(FGuid newNodeId);
     virtual void SetAttachedData(UUpgradeNodeDataAsset* newData);
     virtual void SetRuntimeNode(UObject* runtimeNodeReference);
+    
+    UPROPERTY()
+    TArray<FGuid> _nodeParents;
 
 private:
     UPROPERTY()

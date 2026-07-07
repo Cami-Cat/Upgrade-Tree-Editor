@@ -21,7 +21,10 @@ struct FUpgradeNodeInfo {
     UPROPERTY(BlueprintReadOnly, Category = "Upgrade Tree")
     FGuid NodeId;
 
-    UPROPERTY(BlueprintReadOnly, Category = "Upgrade Tree")
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FGuid> NodeParents;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Upgrade Node")
     TArray<FGuid> Unlocks;
 };
 

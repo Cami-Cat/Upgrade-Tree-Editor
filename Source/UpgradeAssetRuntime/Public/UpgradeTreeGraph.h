@@ -21,6 +21,9 @@ public:
     TArray<FGuid> unlocks;
 
     UPROPERTY()
+    TArray<FGuid> parents;
+
+    UPROPERTY()
     FVector2D position;
 
     UPROPERTY(EditAnywhere, Category = "Node Data", meta = (AllowedClasses = "/Script/UpgradeAssetRuntime.UpgradeNodeDataAsset"))

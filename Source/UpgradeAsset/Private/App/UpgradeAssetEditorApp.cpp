@@ -4,6 +4,9 @@
 #include "ScopedTransaction.h"
 #include "GraphEditor.h"
 #include "Editor.h"
+#include "EdGraphUtilities.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "FileHelpers.h" 
 #include "UObject/ObjectSaveContext.h"
 #include "Editor/EditorEngine.h"
 
@@ -88,12 +91,14 @@ void UpgradeAssetEditorApp::UpdateWorkingAssetFromGraph() {
     runtimeGraph->Nodes.Empty();
     // And the asset's stored node data.
     _workingAsset->NodeData.Empty();
-
+    
     // Then iterate over our current graph's nodes.
     for (UEdGraphNode* uiNode : _workingGraph->Nodes) {
         // We'll cast to UUpgradeAssetGraphNode to ensure that what we're saving is what we want.
         UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(uiNode);
         if (!castNode) continue;
+        castNode->SaveAttachedAsset();
+        UUpgradeNodeDataAsset* VerifiedData = castNode->GetAttachedData();
         // We'll then get the outer that we'll store the node on.
         UObject* NodeOuter = runtimeGraph;
         // We'll make a unique name for the object so it is stored in memory correctly and not overwritten by anything else.
@@ -101,10 +106,16 @@ void UpgradeAssetEditorApp::UpdateWorkingAssetFromGraph() {
         // Then finally create the node. Store it as RF_Transactional for undo-redo and RF_Public so it's visible.
         UUpgradeRuntimeNode* runtimeNode = NewObject<UUpgradeRuntimeNode>(NodeOuter, UniqueNodeName, RF_Transactional | RF_Public);
         // Then we can FINALLY set the data.
+        if (IsValid(VerifiedData)) {
+            runtimeNode->attachedData = VerifiedData;
+        }
+        else {
+            runtimeNode->attachedData = nullptr; // Safety fallback
+        }
         runtimeNode->position = FVector2D(castNode->NodePosX, castNode->NodePosY);
+        runtimeNode->parents = castNode->_nodeParents;
         runtimeNode->unlocks = castNode->GetNodeUnlocks();
         runtimeNode->nodeId = castNode->GetNodeId();
-        runtimeNode->attachedData = castNode->GetAttachedData();
         // And add the runtime node to the graph.
         runtimeGraph->Nodes.Add(runtimeNode);
         // Now we store the node info to access this through blueprints.
@@ -113,10 +124,10 @@ void UpgradeAssetEditorApp::UpdateWorkingAssetFromGraph() {
         BPNodeInfo.Unlocks = castNode->GetNodeUnlocks();
         BPNodeInfo.NodeId = castNode->GetNodeId();
         BPNodeInfo.attachedData = castNode->GetAttachedData();
+        BPNodeInfo.NodeParents = castNode->_nodeParents;
         // And add that to our node data array.
         _workingAsset->NodeData.Add(BPNodeInfo);
     }
-    // We can now mark it as clean to remove the dirty flag.
     MarkAsClean();
 }
 
@@ -139,6 +150,7 @@ void UpgradeAssetEditorApp::UpdateEditorGraphFromWorkingAsset() {
         // And set the positions.
         newNode->NodePosX = runtimeNode->position.X;
         newNode->NodePosY = runtimeNode->position.Y;
+        newNode->_nodeParents = runtimeNode->parents;
         newNode->SetNodeId(runtimeNode->nodeId);
         if (runtimeNode->attachedData) { 
             newNode->_attachedData = runtimeNode->attachedData;
@@ -177,6 +189,21 @@ void UpgradeAssetEditorApp::BindGraphCommands() const {
         FExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::DeleteSelectedNodes),
         FCanExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CanDeleteSelectedNodes)
     );
+    ToolkitCommands->MapAction(
+        FGenericCommands::Get().Copy,
+        FExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CopySelectedNodes),
+        FCanExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CanCopyNodes)
+    );
+    ToolkitCommands->MapAction(
+        FGenericCommands::Get().Cut,
+        FExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CutSelectedNodes),
+        FCanExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CanCutNodes)
+    );
+    ToolkitCommands->MapAction(
+        FGenericCommands::Get().Paste,
+        FExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::PasteNodes),
+        FCanExecuteAction::CreateSP(this, &UpgradeAssetEditorApp::CanPasteNodes)
+    );
 }
 
 // Perform our bulk deletion.
@@ -184,7 +211,8 @@ void UpgradeAssetEditorApp::DeleteSelectedNodes() const {
     if (!_workingGraph || !_workingAsset) { return; }
     if (!GraphEditorWidget.IsValid()) { 
         UE_LOG(LogTemp, Warning, TEXT("GraphEditorWidget is not valid."));
-        return; }
+        return; 
+    }
 
     // We get all of the selected nodes from the widget (this is stored in the Slate widget rather than the underlying graph that stores the data.)
     FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
@@ -209,6 +237,127 @@ void UpgradeAssetEditorApp::DeleteSelectedNodes() const {
 bool UpgradeAssetEditorApp::CanDeleteSelectedNodes() const {
     return true;
 }
+
+void UpgradeAssetEditorApp::CopySelectedNodes() const {
+    if (!_workingGraph || !_workingAsset) { return; }
+    if (!GraphEditorWidget.IsValid()) { 
+        UE_LOG(LogTemp, Warning, TEXT("GraphEditorWidget is not valid."));
+        return; 
+    }
+    
+    FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
+
+    if (SelectedNodes.Num() > 0) {
+        FString ExportedText;
+        FEdGraphUtilities::ExportNodesToText(SelectedNodes, ExportedText);
+        // Unreal Engine uses the clipboard for copying and pasting, so we set the OS clipboard.
+        FPlatformApplicationMisc::ClipboardCopy(*ExportedText);
+    }
+}
+
+bool UpgradeAssetEditorApp::CanCopyNodes() const {
+    return true;
+}
+
+void UpgradeAssetEditorApp::CutSelectedNodes() const {
+    if (!_workingGraph || !_workingAsset) { return; }
+    if (!GraphEditorWidget.IsValid()) { 
+        UE_LOG(LogTemp, Warning, TEXT("GraphEditorWidget is not valid."));
+        return; 
+    }
+    
+    CopySelectedNodes();
+
+    const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "CutNodes", "Cut Nodes"));
+    
+    // Now that we've copied our nodes, we iterate over all selected nodes and delete them.
+    FGraphPanelSelectionSet SelectedNodes = GraphEditorWidget->GetSelectedNodes();
+    for (FGraphPanelSelectionSet::TIterator It(SelectedNodes); It; ++It) {
+        UEdGraphNode* Node = Cast<UEdGraphNode>(*It);
+        if (Node && Node->CanUserDeleteNode()) {
+            UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(Node);
+            castNode->GetGraph()->Modify();
+            castNode->Modify();
+            castNode->DeleteNode();
+        }
+    }
+    // We can clear our selection since there are no nodes anymore.
+    GraphEditorWidget->ClearSelectionSet();
+}
+
+bool UpgradeAssetEditorApp::CanCutNodes() const {
+    return true;
+}
+
+void UpgradeAssetEditorApp::PasteNodes() const {
+    if (!_workingGraph || !_workingAsset) { return; }
+    if (!GraphEditorWidget.IsValid()) { 
+        UE_LOG(LogTemp, Warning, TEXT("GraphEditorWidget is not valid."));
+        return; 
+    }
+
+    FVector2D PasteLocation = GraphEditorWidget->GetPasteLocation();
+
+    const FScopedTransaction Transaction(NSLOCTEXT("UnrealEd", "PasteNodes", "Paste Nodes"));
+    _workingGraph->Modify();
+
+    FString ClipboardText;
+    FPlatformApplicationMisc::ClipboardPaste(ClipboardText);
+
+    // We import every node from text.
+    TSet<UEdGraphNode*> ImportedNodes;
+    FEdGraphUtilities::ImportNodesFromText(_workingGraph, ClipboardText, ImportedNodes);
+
+    // We average out the position of each node.
+    FVector2D AvgNodePosition(0.0f, 0.0f);
+    for (UEdGraphNode* Node : ImportedNodes) {
+        AvgNodePosition.X += Node->NodePosX;
+        AvgNodePosition.Y += Node->NodePosY;
+    }
+    if (ImportedNodes.Num() > 0) {
+        AvgNodePosition /= ImportedNodes.Num();
+    }
+
+    // We deselect our old nodes so that our creates ones can take center stage.
+    GraphEditorWidget->ClearSelectionSet();
+
+    for (UEdGraphNode* Node : ImportedNodes)
+    {
+        UUpgradeAssetGraphNode* castNode = Cast<UUpgradeAssetGraphNode>(Node);
+
+        castNode->CreateNewGuid();
+        castNode->SetNodeId(castNode->NodeGuid);
+        castNode->_unlocks.Empty();
+        // We then reset our position to the user's cursor.
+        castNode->NodePosX = (castNode->NodePosX - AvgNodePosition.X) + PasteLocation.X;
+        castNode->NodePosY = (castNode->NodePosY - AvgNodePosition.Y) + PasteLocation.Y;
+
+        // Snap the node to our grid.
+        castNode->SnapToGrid(SNodePanel::GetSnapGridSize());
+        
+        // Force create a new GUID, so that our nodes do not store the same invalid data.
+        UUpgradeNodeDataAsset* NewData = DuplicateObject(castNode->GetAttachedData(), castNode);
+        castNode->SetAttachedData(NewData);
+
+        if (castNode->GetAttachedData()) {
+            castNode->GetAttachedData()->OnIconChanged.RemoveDynamic(castNode, &UUpgradeAssetGraphNode::HandleIconChanged);
+            castNode->GetAttachedData()->OnIconChanged.AddDynamic(castNode, &UUpgradeAssetGraphNode::HandleIconChanged);
+            castNode->GetAttachedData()->OnBorderChanged.RemoveDynamic(castNode, &UUpgradeAssetGraphNode::HandleBorderChanged);
+            castNode->GetAttachedData()->OnBorderChanged.AddDynamic(castNode, &UUpgradeAssetGraphNode::HandleBorderChanged);
+        }
+
+
+        GraphEditorWidget->SetNodeSelection(castNode, true);
+    }
+
+    // Refresh our UI.
+    GraphEditorWidget->NotifyGraphChanged();
+}
+
+bool UpgradeAssetEditorApp::CanPasteNodes() const {
+    return true;
+}
+
 
 // Undo and redo handling, just to refresh the graph.
 void UpgradeAssetEditorApp::PostUndo(bool bSuccess) {
@@ -260,12 +409,20 @@ void UpgradeAssetEditorApp::OnSelectionChanged(const TSet<UObject*>& NewSelectio
                 ObjectsToView.Add(targetAsset);
                 // We'll then set the objects in the details view to these objects.
                 detailsView->SetObjects(ObjectsToView, true);
+                if (!IsValid(targetAsset) || !IsValid(graphNode)) {
+                    detailsView->SetObject(nullptr, true); 
+                    return;
+                }
                 // And add a lambda to update the details view when the data has changed.
                 graphNode->OnAttachedDataChanged.AddLambda([this](UUpgradeAssetGraphNode* graphNode, UUpgradeNodeDataAsset* newAsset) {
                     TArray<UObject*> ObjectsToView;
 
                     ObjectsToView.Add(graphNode);
                     ObjectsToView.Add(newAsset);
+                    if (!IsValid(newAsset) || !IsValid(graphNode)) {
+                        detailsView->SetObject(nullptr, true); 
+                        return;
+                    }
                     detailsView->SetObjects(ObjectsToView, true);
                 });
             }

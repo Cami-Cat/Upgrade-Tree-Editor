@@ -8,6 +8,37 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnComponentUpgradeHandler, FUpgrade
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnComponentUpgradedFullyHandler, FUpgradeNodeInfo, Upgrade);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUnlockConnectedNodeRequirementsMet, FUpgradeNodeInfo, Upgrade);
 
+USTRUCT(BlueprintType, Blueprintable)
+struct FUpgradeBuyDef {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadOnly)
+    FName CurrencyName;
+    UPROPERTY(BlueprintReadOnly)
+    int32 TotalPrice;
+    UPROPERTY(BlueprintReadOnly)
+    int32 TotalBuyableAmount;
+
+    FUpgradeBuyDef()
+        : TotalPrice(0)
+        , TotalBuyableAmount(0)
+    {}
+};
+
+USTRUCT(BlueprintType, Blueprintable)
+struct FUpgradeBoughtDef {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadOnly)
+    FName CurrencyName;
+    UPROPERTY(BlueprintReadOnly)
+    int32 PurchasedAmount = 0;
+    UPROPERTY(BlueprintReadOnly)
+    int32 TotalCost = 0;
+    UPROPERTY(BlueprintReadOnly)
+    bool bBought = false;
+};
+
 UCLASS(BlueprintType, meta=(BlueprintSpawnableComponent))
 class UPGRADEASSETRUNTIME_API UUpgradeTrackerComponent : public UActorComponent {
     GENERATED_BODY()
@@ -49,8 +80,25 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Setters")
     void SetUpgradeProgress(FGuid NodeID, int32 NewUpgradeCount, bool bNewIsUnlocked);
+    
+    UFUNCTION(BlueprintPure, Category = "Upgrades")
+    float GetCurrentUpgradeCost(FGuid NodeID) const;
 
     UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Mutators")
-    bool TryIncrementUpgrade(FGuid NodeID);
+    bool TryIncrementUpgrade(FGuid NodeID, UPARAM(ref) TMap<FName, int32>& CurrencyMap);
 
+    UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Getters")
+    FUpgradeBuyDef GetTotalNumBuyable(FGuid NodeID, const TMap<FName, int32>& CurrencyMap);
+
+    UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Mutators")
+    FUpgradeBoughtDef TryBuyMaxUpgrades(FGuid NodeID, UPARAM(ref) TMap<FName, int32>& CurrencyMap);
+
+    UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Getters")
+    bool AreParentNodeRequirementsMet(FGuid NodeID);
+
+    UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Mutators")
+    void UnlockNode(FGuid NodeID);
+
+    UFUNCTION(BlueprintCallable, Category = "Upgrade Tree|Getters")
+    FUpgradeStat GetUpgradeStatAtLevel(FGuid NodeID, int32 inLevel);
 };
